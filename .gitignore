@@ -1,0 +1,5 @@
+.venv/
+model/__pycache__
+query/__pycache__
+*.db
+*.txt
