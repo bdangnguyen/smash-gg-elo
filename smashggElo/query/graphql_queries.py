@@ -8,18 +8,12 @@ query TournamentQuery($slug: String) {
 		}
 	}"""
 
-id_query = """
-query IDQuery($slug:String!, $page:Int){
-  tournament(slug:$slug) {
-    participants(query:
-    {page:$page}
-    ) {
-      nodes {
-        gamerTag
-        user {
-          id
-        }
-        id
+total_player_page_query = """
+query TotalPlayerPage($eventId:ID!){
+  event(id:$eventId){
+    entrants {
+      pageInfo{
+        totalPages
       }
     }
   }
@@ -27,9 +21,9 @@ query IDQuery($slug:String!, $page:Int){
 """
 
 id_query2 = """
-query EventUserId($eventId:ID!) {
+query EventUserId($eventId:ID!, $page:Int) {
   event(id:$eventId) {
-    entrants {
+    entrants(query: {page: $page}) {
       nodes {
         id
         participants {
@@ -38,6 +32,19 @@ query EventUserId($eventId:ID!) {
             id
           }
         }
+      }
+    }
+  }
+}
+"""
+total_event_sets_page_query = """
+query EventSetsPageTotal($eventId:ID!,$perPage:Int) {
+  event(id:$eventId){
+    sets(
+      perPage: $perPage
+      sortType:CALL_ORDER){
+      pageInfo {
+        totalPages
       }
     }
   }

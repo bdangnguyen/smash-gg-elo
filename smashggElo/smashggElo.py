@@ -9,6 +9,7 @@ from query.graphql_queries import *
 K_FACTOR_PROVISIONAL = 32
 K_FACTOR_STANDARD = 24
 PROVISIONAL_LIMIT = 20
+MAX_PER_PAGE = 25
 
 # Calculate the expected score according to the Elo rating algorithm.
 # This should only be called every time we update the match records.
@@ -55,7 +56,6 @@ def main():
 	    raise Exception("No events were found.")
 
     # Get the event id. This is the case where we have more than 1 event.
-    # O(2n), where n = number of events.
     if (len(event_list) > 1):
 	    print("More than one event was detected, input desired event id:")
 	    for i in range(len(event_list)):
@@ -75,36 +75,74 @@ def main():
     # Convert to string as GraphQL takes type ID! as a string.
     event_id = str(event_id)
 
-    # Request the list of players attending the tournament with the format 
-    # [{'gamerTag': gbl username, 'user': {'id': gbl ID}, 'id' tournament id}]
-    request_id2 = requests.post(
+    # Request the total pages that we have. Knowing that by 
+    # default, smash.gg returns 25 players per page.
+    request_total_player_page = requests.post(
         url,
         json={
-            'query': id_query2,
+            'query': total_player_page_query,
             'variables':{'eventId': event_id}},
         headers = headers)
-    json_id2_data = json.loads(request_id2.text)
 
-    # Format the obtained list into a dictionary for ease. Keys being the 
-    # user ID associated with the tournament. Values being pairs of type 
-    # (global username, global ID). O(n), where n = number of players.
+    # Extract total number of pages
+    json_total_player_page = json.loads(request_total_player_page.text)
+    total_player_page_count = int(
+        json_total_player_page['data']['event']['entrants']['pageInfo']
+            ['totalPages'])
+
+    # Dictionary object containing all of the players of a tournament.
     player_dict = {}
-    for user in json_id2_data['data']['event']['entrants']['nodes']:
-        player_dict[user.get('id')] = (
-            user['participants'][0].get('gamerTag'),
-            user['participants'][0].get('user').get('id')
-        )
+
+    # O(25n). Populate the player_dict. 25 given by the fact that there are 25
+    # maximum players per page.
+    for i in range(1, total_player_page_count + 1):
+        # Request the list of players attending the tournament with the format 
+        # [{'gamerTag': gbl username, 'user': {'id': gbl ID}, 'id' tournament id}]
+        request_id2 = requests.post(
+            url,
+            json={
+                'query': id_query2,
+                'variables':{'eventId': event_id, 'page': i}},
+            headers = headers)
+        json_id2_data = json.loads(request_id2.text)
+
+        # Format the obtained list into a dictionary for ease. Keys being the 
+        # user ID associated with the tournament. Values being pairs of type 
+        # (global username, global ID).
+        for user in json_id2_data['data']['event']['entrants']['nodes']:
+            player_dict[user.get('id')] = (
+                user['participants'][0].get('gamerTag'),
+                user['participants'][0].get('user').get('id')
+            )
     
-    # Request all sets completed in desired event.
-    request_sets = requests.post(
+    # Request the total pages that we have. Fix the maximum amount per page to be 25.
+    # We don't want strange cases when we have to disqualify both players to overload
+    # the requests.
+    request_total_event_sets_page = requests.post(
         url,
         json={
-            'query': event_sets_query,
-            'variables':{'eventId': event_id, 'page': 1, 'perPage':999}},
+            'query': total_event_sets_page_query,
+            'variables':{'eventId': event_id, 'perPage':MAX_PER_PAGE}},
         headers = headers)
-    json_set_data = json.loads(request_sets.text)
-    set_list = json_set_data['data']['event']['sets']['nodes']
 
+    # Extract total number of pages of events.
+    json_total_events_sets_page = json.loads(request_total_event_sets_page.text)
+    total_event_sets_page_count = int(
+        json_total_events_sets_page['data']['event']['sets']['pageInfo']
+            ['totalPages'])
+    
+    # Request all sets completed in desired event.
+    set_list = []
+    for i in range(1, total_event_sets_page_count + 1):
+        request_sets = requests.post(
+            url,
+            json={
+                'query': event_sets_query,
+                'variables':{'eventId': event_id, 'page': i, 'perPage':MAX_PER_PAGE}},
+            headers = headers)
+        json_set_data = json.loads(request_sets.text)
+        for set in json_set_data['data']['event']['sets']['nodes']:
+            set_list.append(set)
 
     # Get time the set was completed. Get player one's id and score.
     # Get player two's id and score. In the worst case, we have O(23n), where
@@ -281,6 +319,7 @@ def main():
         count += 1
 
     # Cleanup.
+    print("Data added to database " + db.database)
     db.close()
 
 if __name__ == "__main__":
